@@ -1,0 +1,212 @@
+---
+title: "Практическая работа 4"
+author: "tanya.maksimova.2004@yandex.ru"
+format: 
+  md:
+    output-file: README.md
+---
+
+## Название
+
+Исследование метаданных DNS трафика
+
+## Цель работы
+
+1. Закрепить практические навыки использования языка программирования R для обработки данных
+
+2. Закрепить знания основных функций обработки данных экосистемы tidyverse языка R
+
+3. Закрепить навыки исследования метаданных DNS трафика
+
+
+## Исходные данные
+
+1.  Ноутбук с ОС Windows 10
+2.  Rstudio Desktop
+3.  Интерпретатор R 4.5.1
+
+```{R}
+sessionInfo()
+```
+
+## Задание
+
+Используя программный пакет dplyr, освоить анализ DNS логов с помощью языка программирования R.
+
+## Ход работы
+
+1. Импортируйте данные DNS 
+https://storage.yandexcloud.net/dataset.ctfsec/dns.zip
+2. Добавьте пропущенные данные о структуре данных (назначении столбцов)
+3. Преобразуйте данные в столбцах в нужный формат
+4. Просмотрите общую структуру данных с помощью функции glimpse()
+
+## Анализ
+
+4. Сколько участников информационного обмена в сети Доброй Организации?
+5. Какое соотношение участников обмена внутри сети и участников обращений к внешним ресурсам?
+6. Найдите топ-10 участников сети, проявляющих наибольшую сетевую активность
+7. Найдите топ-10 доменов, к которым обращаются пользователи сети и соответственное количество обращений
+8. Опеределите базовые статистические характеристики (функция summary()) интервала времени между последовательными обращениями к топ-10 доменам
+9. Часто вредоносное программное обеспечение использует DNS канал в качестве канала управления, периодически отправляя запросы на подконтрольный злоумышленникам DNS сервер. По периодическим запросам на один и тот же домен можно выявить скрытый DNS канал. Есть ли такие IP адреса в исследуемом датасете?
+
+## Обогащение данных
+
+10. Определите местоположение (страну, город) и организацию-провайдера для топ-10 доменов. Для этого можно использовать сторонние сервисы, например http://ip-api.com (API-эндпоинт http://ip-api.com/json)
+
+## Выполнение шагов
+
+### Шаг 1
+
+Установим и подключим необходимые пакеты:
+
+```{r}
+library(dplyr)
+```
+
+```{r}
+library(readr)
+```
+
+```{r}
+library(httr)
+```
+
+```{r}
+library(tidyverse)
+```
+
+### Шаг 2
+
+Подготовим данные:
+
+#### 1. Импортируем данные:
+
+```{r}
+dns_d <- read.csv(file = "dns.log", header = FALSE, sep = '\t', na.strings = c("-"))
+```
+
+#### 2. Добавим данные о структуре данных (назначении столбцов):
+
+```{r}
+col_names <- c("timestamp", "uid", "source_ip", "source_port", "destination_ip", 
+  "destination_port", "protocol", "transaction_id", "query", "qclass", 
+  "qclass_name", "qtype", "qtype_name", "rcode", "rcode_name", 
+  "AA", "TC", "RD", "RA", "Z", "answer", "TTLS", "rejected")
+```
+
+```{r}
+names(dns_d) <- col_names
+```
+
+#### 3. Преобразуем данные в столбцах в нужный формат:
+
+```{r}
+dns_d <- dns_d %>% mutate(timestamp = as_datetime(timestamp), source_port = as.numeric(source_port), qclass = as.numeric(qclass), qtype = as.numeric(qtype))
+```
+
+#### 4. Посмотрим общую структуру данных:
+
+```{r}
+glimpse(dns_d)
+```
+### Шаг 3
+
+Анализ:
+
+#### 4. Сколько участников информационного обмена в сети Доброй Организации?
+
+```{r}
+unique(c(dns_d$source_ip, dns_d$destination_ip)) %>% length()
+```
+
+#### 5. Какое соотношение участников обмена внутри сети и участников обращений к внешним ресурсам?
+
+```{r}
+priv_net <- "^(192\\.168\\.|10\\.|172\\.(1[6-9]|2[0-9]|3[0-1])\\.)"
+uniq_ip <- unique(c(dns_d$source_ip, dns_d$destination_ip))
+inter_ip <- uniq_ip[grepl(priv_net, uniq_ip)]
+exter_ip <- uniq_ip[!grepl(priv_net, uniq_ip)]
+length(inter_ip)/length(exter_ip)
+```
+
+#### 6. Найдите топ-10 участников сети, проявляющих наибольшую сетевую активность
+
+```{r}
+dns_d %>% count(source_ip) %>% arrange(desc(n)) %>% head(10)
+```
+
+#### 7. Найдите топ-10 доменов, к которым обращаются пользователи сети и соответственное количество обращений
+
+```{r}
+dns_d %>% count(query) %>% arrange(desc(n)) %>% head(10)
+```
+
+#### 8. Опеределите базовые статистические характеристики (функция summary()) интервала времени между последовательными обращениями к топ-10 доменам
+
+```{r}
+top_10_d <- dns_d %>% count(query) %>% arrange(desc(n)) %>% head(10) %>% pull(query)
+
+for(d in top_10_d) {
+  dom_data <- dns_d %>% filter(query == d) %>% arrange(timestamp)
+  intervals <- diff(dom_data$timestamp)
+  cat("\nДомен:", d, "\n")
+  cat("Количество запросов:", nrow(dom_data), "\n")
+  print(summary(intervals))}
+```
+
+#### 9. Часто вредоносное программное обеспечение использует DNS канал в качестве канала управления, периодически отправляя запросы на подконтрольный злоумышленникам DNS сервер. По периодическим запросам на один и тот же домен можно выявить скрытый DNS канал. Есть ли такие IP адреса в исследуемом датасете?
+
+```{r}
+susp_ips <- dns_d %>% filter(!is.na(source_ip), !is.na(query), query != "") %>% arrange(source_ip, query, timestamp) %>% group_by(source_ip, query) %>%
+  mutate(time_num = as.numeric(timestamp),
+    intvl = c(NA, diff(time_num))) %>%
+  filter(!is.na(intvl)) %>%
+  summarise(n_req = n() + 1, mean_int = mean(intvl), sd_int = sd(intvl),
+    .groups = "drop") %>%
+  filter(n_req >= 35, mean_int <= 60, sd_int <= 2) %>%
+  group_by(source_ip) %>%
+  summarise(suspicious_domains = n(), total_requests = sum(n_req),
+    avg_interval = mean(mean_int), .groups = "drop") %>%
+  arrange(desc(suspicious_domains), desc(total_requests))
+
+susp_ips
+```
+
+### Шаг 4
+
+Обогащение данных:
+
+#### 10. Определите местоположение (страну, город) и организацию-провайдера для топ-10 доменов. Для этого можно использовать сторонние сервисы, например http://ip-api.com (API-эндпоинт http://ip-api.com/json)
+
+```{r}
+top_10_d <- dns_d %>% count(query) %>% arrange(desc(n)) %>% head(10) %>% pull(query)
+
+geo_data <- data.frame()
+for(domain in top_10_d) {
+  url <- paste0("http://ip-api.com/json/", domain)
+  response <- GET(url)
+  
+  if(status_code(response) == 200) {
+    info <- content(response)
+    geo_data <- rbind(geo_data, data.frame(
+      query = domain,
+      ip = ifelse(is.null(info$query), NA, info$query),
+      country = ifelse(is.null(info$country), NA, info$country),
+      city = ifelse(is.null(info$city), NA, info$city),
+      isp = ifelse(is.null(info$isp), NA, info$isp)
+    ))
+  } else {
+    geo_data <- rbind(geo_data, data.frame(
+      domain = domain, ip = NA, country = NA, city = NA, isp = NA))
+  }
+  
+  Sys.sleep(1)
+}
+
+geo_data
+```
+
+## Вывод
+
+В ходе выполнения 4 практической работы были озакреплены навыки использования языка R для исследования метаданных DNS трафика.
